@@ -7982,8 +7982,9 @@ const storageAdapter = (function(){
 let cards = [];        // [{db, link, celeb, type, count}]
 
 // Bump this with every update — lets you confirm at a glance whether you're on the latest copy.
-const BINDER_VERSION = 'v3.7';
-const BINDER_BUILD_DATE = 'Aug 24, 2026';
+const BINDER_VERSION = 'v3.8';
+const BINDER_BUILD_DATE = 'Aug 24, 2026';       // original creation date — never changes
+const BINDER_LAST_UPDATED = 'Sep 2, 2026';      // bump this alongside BINDER_VERSION on every update
 let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}]}
 let sortState = {key:'celeb', dir:1};
 
@@ -9065,7 +9066,8 @@ function renderAll(){
 }
 
 (async function init(){
-  document.getElementById('versionTag').textContent = `${BINDER_VERSION} — built ${BINDER_BUILD_DATE}`;
+  document.getElementById('versionTag').textContent =
+    `${BINDER_VERSION} — built ${BINDER_BUILD_DATE}, updated to current version ${BINDER_LAST_UPDATED}`;
   await loadCards();
   if(cards.length === 0 && typeof DEFAULT_CSV !== 'undefined'){
     // First run: seed with the last known CardList export so the Hub opens populated.
