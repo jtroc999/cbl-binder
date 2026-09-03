@@ -7982,7 +7982,7 @@ const storageAdapter = (function(){
 let cards = [];        // [{db, link, celeb, type, count}]
 
 // Bump this with every update — lets you confirm at a glance whether you're on the latest copy.
-const BINDER_VERSION = 'v3.5';
+const BINDER_VERSION = 'v3.7';
 const BINDER_BUILD_DATE = 'Aug 24, 2026';
 let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}]}
 let sortState = {key:'celeb', dir:1};
@@ -8761,10 +8761,10 @@ function renderAlbum(){
   }
   filtered.sort((a,b)=> compareCelebNames(a.celeb,b.celeb) || a.type.localeCompare(b.type));
   grid.innerHTML = filtered.map(c=>`
-    <div class="card owned" data-celeb="${escapeAttr(c.celeb)}" data-type="${escapeAttr(c.type)}">
+    <div class="card owned" data-link="${escapeAttr(c.link)}">
       ${tierBadge(c.celeb) ? `<div class="tier-corner">${tierBadge(c.celeb)}</div>` : ''}
       <div class="card-img-wrap">
-        <img class="card-img" src="${escapeAttr(c.link)}" loading="lazy" referrerpolicy="no-referrer"
+        <img class="card-img" src="${escapeAttr(c.link)}" referrerpolicy="no-referrer"
              onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
         <div class="card-fallback">${escapeHtml(displayType(c))}</div>
       </div>
@@ -8807,9 +8807,9 @@ function renderCelebResult(){
     <h3 style="font-size:15px; margin-bottom:10px;">${tierBadge(name)} ${escapeHtml(name)} — ${ownedCount} of ${rows.length} card types owned</h3>
     <div class="grid">
       ${rows.map(c=>`
-        <div class="card ${c.count>0?'owned':'unowned'}" data-celeb="${escapeAttr(c.celeb)}" data-type="${escapeAttr(c.type)}">
+        <div class="card ${c.count>0?'owned':'unowned'}" data-link="${escapeAttr(c.link)}">
           <div class="card-img-wrap">
-            <img class="card-img" src="${escapeAttr(c.link)}" loading="lazy" referrerpolicy="no-referrer"
+            <img class="card-img" src="${escapeAttr(c.link)}" referrerpolicy="no-referrer"
                  onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
             <div class="card-fallback">${escapeHtml(displayType(c))}</div>
           </div>
@@ -8917,9 +8917,9 @@ document.getElementById('btnSaveTargets').addEventListener('click', async ()=>{
 /* ============================================================
    CARD MODAL (expanded view)
    ============================================================ */
-function openCardModal(celebName, typeName){
+function openCardModal(cardLink){
   const source = viewingUser ? viewingUserCards : cards;
-  const card = source.find(c=>c.celeb===celebName && c.type===typeName);
+  const card = source.find(c=>c.link===cardLink);
   if(!card) return;
   const img = document.getElementById('modalImg');
   const fallback = document.getElementById('modalFallback');
@@ -8974,7 +8974,7 @@ document.addEventListener('keydown', (e)=>{
   document.getElementById(id).addEventListener('click', (e)=>{
     const tile = e.target.closest('.card');
     if(!tile) return;
-    openCardModal(tile.dataset.celeb, tile.dataset.type);
+    openCardModal(tile.dataset.link);
   });
 });
 
