@@ -281,6 +281,11 @@
     #stats{grid-template-columns:1fr;}
     .grid{grid-template-columns:repeat(auto-fill, minmax(105px,1fr));}
   }
+  #versionFooter{
+    position:fixed; bottom:5px; right:9px; font-family:'IBM Plex Mono',monospace;
+    font-size:9px; color:var(--text-dim); opacity:0.45; z-index:50; pointer-events:none;
+    letter-spacing:0.02em;
+  }
 </style>
 </head>
 <body>
@@ -534,6 +539,9 @@
     </div>
   </div>
 </div>
+
+<!-- Persistent, subtle version indicator — visible on every tab -->
+<div id="versionFooter"></div>
 
 <script>
 const DEFAULT_CSV = `DB No,Celeb Name,Card Type,Count
@@ -7991,9 +7999,9 @@ const storageAdapter = (function(){
 let cards = [];        // [{db, link, celeb, type, count}]
 
 // Bump this with every update — lets you confirm at a glance whether you're on the latest copy.
-const BINDER_VERSION = 'v3.9';
-const BINDER_BUILD_DATE = 'Aug 24, 2026';       // original creation date — never changes
-const BINDER_LAST_UPDATED = 'Sep 2, 2026';      // bump this alongside BINDER_VERSION on every update
+// Date-based versioning: v[mm.dd.yy].[deployment# for that day].
+// Same calendar day + another change = increment the last number. New day = reset to 1.
+const BINDER_VERSION = 'v09.04.26.1';
 let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}]}
 let sortState = {key:'celeb', dir:1};
 
@@ -9075,8 +9083,8 @@ function renderAll(){
 }
 
 (async function init(){
-  document.getElementById('versionTag').textContent =
-    `${BINDER_VERSION} — built ${BINDER_BUILD_DATE}, updated to current version ${BINDER_LAST_UPDATED}`;
+  document.getElementById('versionTag').textContent = BINDER_VERSION;
+  document.getElementById('versionFooter').textContent = BINDER_VERSION;
   await loadCards();
   if(cards.length === 0 && typeof DEFAULT_CSV !== 'undefined'){
     // First run: seed with the last known CardList export so the Hub opens populated.
