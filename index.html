@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>The Binder — CBL Collection Hub</title>
+
+<!-- PWA / "Add to Home Screen" support -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#14161f">
+<!-- iOS-specific: Safari doesn't fully read manifest.json, needs these directly -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="The Binder">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
@@ -7982,7 +7991,7 @@ const storageAdapter = (function(){
 let cards = [];        // [{db, link, celeb, type, count}]
 
 // Bump this with every update — lets you confirm at a glance whether you're on the latest copy.
-const BINDER_VERSION = 'v3.8';
+const BINDER_VERSION = 'v3.9';
 const BINDER_BUILD_DATE = 'Aug 24, 2026';       // original creation date — never changes
 const BINDER_LAST_UPDATED = 'Sep 2, 2026';      // bump this alongside BINDER_VERSION on every update
 let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}]}
