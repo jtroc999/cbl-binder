@@ -307,6 +307,7 @@
       <button data-tab="collection">Collection</button>
       <button data-tab="album">Album</button>
       <button data-tab="celeb">By Celeb</button>
+      <button data-tab="type">By Type</button>
       <button data-tab="heatmap">Heatmap</button>
       <button data-tab="targets">Targets</button>
       <button data-tab="wishlist-matches">Wishlist Matches</button>
@@ -351,6 +352,20 @@
           </label>
         </div>
         <div id="syncMsg" class="sub"></div>
+      </div>
+
+      <div id="portalDetailsBox" class="import-box" style="margin-bottom:22px; display:none;">
+        <div style="font-family:'Oswald'; font-size:14px; letter-spacing:0.03em; color:var(--gold-bright);">
+          Portal Details (from your last sync)
+        </div>
+        <div>
+          <div class="sub" style="font-size:11px; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Outstanding Prizes</div>
+          <div id="outstandingPrizesText" style="font-size:13px;">—</div>
+        </div>
+        <div style="margin-top:10px;">
+          <div class="sub" style="font-size:11px; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Portal Last Update</div>
+          <div id="portalLastUpdateText" class="mono" style="font-size:13px;">—</div>
+        </div>
       </div>
 
       <div style="color:var(--text-dim); font-size:12px; margin-bottom:8px;">— or import manually —</div>
@@ -416,6 +431,23 @@
         <select id="celebSelect"><option value="">Choose a celeb…</option></select>
       </div>
       <div id="celebResult"></div>
+    </div>
+
+    <!-- BY TYPE -->
+    <div class="tab-panel" id="panel-type" style="display:none;">
+      <div class="pagehead">
+        <h2>By Type</h2>
+        <span class="sub" id="typeCount"></span>
+      </div>
+      <p class="sub" style="max-width:640px; margin-top:-8px;">
+        See every celeb who has a given card type, across your whole collection — good for spotting
+        gaps in one type at a glance instead of hunting celeb by celeb.
+      </p>
+      <div class="controls">
+        <select id="typeSelect"><option value="">Choose a card type…</option></select>
+        <input type="text" id="typeSearch" placeholder="Filter by celeb name…">
+      </div>
+      <div id="typeResult"></div>
     </div>
 
     <!-- HEATMAP -->
@@ -8001,7 +8033,7 @@ let cards = [];        // [{db, link, celeb, type, count}]
 // Bump this with every update — lets you confirm at a glance whether you're on the latest copy.
 // Date-based versioning: v[mm.dd.yy].[deployment# for that day].
 // Same calendar day + another change = increment the last number. New day = reset to 1.
-const BINDER_VERSION = 'v09.04.26.1';
+const BINDER_VERSION = 'v09.04.26.2';
 let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}]}
 let sortState = {key:'celeb', dir:1};
 
@@ -8039,9 +8071,19 @@ async function saveDetails(){
     tokens: +document.getElementById('inTokens').value || 0,
     gc: +document.getElementById('inGC').value || 0,
     exp: +document.getElementById('inEXP').value || 0,
-    rt: +document.getElementById('inRT').value || 0
+    rt: +document.getElementById('inRT').value || 0,
+    outstandingPrizes: window.__outstandingPrizes || '',
+    portalLastUpdate: window.__portalLastUpdate || ''
   };
   try{ await storageAdapter.set('cbl-details', JSON.stringify(d)); }catch(e){console.error(e);}
+}
+function renderPortalDetailsBox(){
+  const box = document.getElementById('portalDetailsBox');
+  const hasEither = window.__outstandingPrizes || window.__portalLastUpdate;
+  if(!hasEither){ box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  document.getElementById('outstandingPrizesText').textContent = window.__outstandingPrizes || '(none listed)';
+  document.getElementById('portalLastUpdateText').textContent = window.__portalLastUpdate || '(not available)';
 }
 async function loadDetails(){
   try{
@@ -8052,6 +8094,9 @@ async function loadDetails(){
       document.getElementById('inGC').value = d.gc||0;
       document.getElementById('inEXP').value = d.exp||0;
       document.getElementById('inRT').value = d.rt||0;
+      window.__outstandingPrizes = d.outstandingPrizes || '';
+      window.__portalLastUpdate = d.portalLastUpdate || '';
+      renderPortalDetailsBox();
     }
   }catch(e){}
 }
@@ -8214,6 +8259,9 @@ async function syncFromSheet(silent){
       if(data.details.gc!==undefined) document.getElementById('inGC').value = data.details.gc || 0;
       if(data.details.exp!==undefined) document.getElementById('inEXP').value = data.details.exp || 0;
       if(data.details.rt!==undefined) document.getElementById('inRT').value = data.details.rt || 0;
+      window.__outstandingPrizes = data.details.outstandingPrizes || '';
+      window.__portalLastUpdate = data.details.portalLastUpdate || '';
+      renderPortalDetailsBox();
       await saveDetails();
     }
     const when = data.generatedAt ? new Date(data.generatedAt).toLocaleString() : new Date().toLocaleString();
@@ -8839,6 +8887,48 @@ function renderCelebResult(){
 document.getElementById('celebSelect').addEventListener('change', renderCelebResult);
 
 /* ============================================================
+   RENDER: By Type — every celeb who has a given card type, owned or not.
+   ============================================================ */
+function populateTypeSelect(){
+  const sel = document.getElementById('typeSelect');
+  const types = [...new Set(cards.map(c=>c.type))].filter(Boolean).sort((a,b)=>a.localeCompare(b));
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Choose a card type…</option>' +
+    types.map(t=>`<option value="${escapeAttr(t)}">${escapeHtml(t)}</option>`).join('');
+  if(types.includes(current)) sel.value = current;
+}
+function renderTypeResult(){
+  const type = document.getElementById('typeSelect').value;
+  const q = (document.getElementById('typeSearch').value || '').trim().toLowerCase();
+  const el = document.getElementById('typeResult');
+  const countEl = document.getElementById('typeCount');
+  if(!type){ el.innerHTML=''; countEl.textContent=''; return; }
+  let rows = cards.filter(c=>c.type===type);
+  if(q) rows = rows.filter(c=>c.celeb.toLowerCase().includes(q));
+  rows.sort((a,b)=>compareCelebNames(a.celeb,b.celeb));
+  const ownedCount = rows.filter(r=>r.count>0).length;
+  countEl.textContent = `${ownedCount} of ${rows.length} owned`;
+  if(rows.length===0){
+    el.innerHTML = `<div class="empty">No celebs found for this type/search.</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="grid">` + rows.map(c=>`
+    <div class="card ${c.count>0?'owned':'unowned'}" data-link="${escapeAttr(c.link)}">
+      ${tierBadge(c.celeb) ? `<div class="tier-corner">${tierBadge(c.celeb)}</div>` : ''}
+      <div class="card-img-wrap">
+        <img class="card-img" src="${escapeAttr(c.link)}" referrerpolicy="no-referrer"
+             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+        <div class="card-fallback">${escapeHtml(displayType(c))}</div>
+      </div>
+      <div class="name">${tierBadge(c.celeb)} ${escapeHtml(c.celeb)}</div>
+      <div class="type">${typeCodeHtml(c)}</div>
+      <div class="qty">${c.count>0 ? '×'+c.count : 'not owned'}</div>
+    </div>`).join('') + `</div>`;
+}
+document.getElementById('typeSelect').addEventListener('change', renderTypeResult);
+document.getElementById('typeSearch').addEventListener('input', renderTypeResult);
+
+/* ============================================================
    RENDER: heatmap
    ============================================================ */
 function renderHeatmap(){
@@ -8988,7 +9078,7 @@ document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape') closeCardModal();
 });
 // Event delegation: any .card tile inside these two containers opens the modal
-['albumGrid','celebResult'].forEach(id=>{
+['albumGrid','celebResult','typeResult'].forEach(id=>{
   document.getElementById(id).addEventListener('click', (e)=>{
     const tile = e.target.closest('.card');
     if(!tile) return;
@@ -9073,6 +9163,8 @@ function renderAll(){
   renderCollection();
   populateCelebSelect();
   renderCelebResult();
+  populateTypeSelect();
+  renderTypeResult();
   renderAlbum();
   renderHeatmap();
   renderTargets();
