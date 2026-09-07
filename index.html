@@ -8033,7 +8033,7 @@ let cards = [];        // [{db, link, celeb, type, count}]
 // Bump this with every update — lets you confirm at a glance whether you're on the latest copy.
 // Date-based versioning: v[mm.dd.yy].[deployment# for that day].
 // Same calendar day + another change = increment the last number. New day = reset to 1.
-const BINDER_VERSION = 'v09.04.26.2';
+const BINDER_VERSION = 'v09.04.26.3';
 let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}]}
 let sortState = {key:'celeb', dir:1};
 
@@ -8196,7 +8196,7 @@ let tradeRows = [];
 // Baked-in default so a freshly downloaded copy of the Binder always opens with this filled in —
 // no more re-pasting it after every update. Saved to storage on first load so it behaves exactly
 // like a manually-entered URL from then on (editable, persists across sessions).
-const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbz2X5Y0Z7qteqEOKrkngsWhemio5or8f0VVRTcoDixNMQdN5L61CcOfLt9IcQWSFxkbRA/exec';
+const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbxmppATj6pRb6W_olQzGfSBrCSKONu1vWj1KngR0ACfcUIAcLipHwVbrj6pcqF9rmlCyA/exec';
 
 async function saveSyncUrl(){
   try{ await storageAdapter.set('cbl-sync-url', document.getElementById('syncUrl').value.trim()); }catch(e){}
