@@ -303,7 +303,7 @@
     </div>
 
     <nav class="tabs">
-      <button data-tab="import" class="active">Import Data</button>
+      <button data-tab="import" class="active">Admin</button>
       <button data-tab="collection">Collection</button>
       <button data-tab="album">Album</button>
       <button data-tab="celeb">By Celeb</button>
@@ -324,12 +324,16 @@
 
   <div id="main">
 
-    <!-- IMPORT -->
+    <!-- ADMIN -->
     <div class="tab-panel" id="panel-import">
       <div class="pagehead">
-        <h2>Import your CardList</h2>
+        <h2>Admin</h2>
         <span class="sub mono" id="versionTag"></span>
       </div>
+      <p class="sub" style="max-width:640px; margin-top:-8px;">
+        Sync setup, Portal account details, and manual CardList import — everything that isn't card
+        content itself lives here.
+      </p>
       <p class="sub" style="max-width:640px; margin-top:-8px;">
         Export your Hub's <b>CardList</b> tab as CSV (File → Download → CSV), then paste it below or
         upload the file. Expected columns: <span class="mono">DB No, Link, Celeb Name, Card Type, Count</span>.
@@ -8033,7 +8037,7 @@ let cards = [];        // [{db, link, celeb, type, count}]
 // Bump this with every update — lets you confirm at a glance whether you're on the latest copy.
 // Date-based versioning: v[mm.dd.yy].[deployment# for that day].
 // Same calendar day + another change = increment the last number. New day = reset to 1.
-const BINDER_VERSION = 'v09.04.26.3';
+const BINDER_VERSION = 'v09.04.26.4';
 let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}]}
 let sortState = {key:'celeb', dir:1};
 
@@ -8275,7 +8279,7 @@ async function syncFromSheet(silent){
 async function syncWishlistDb(){
   const url = baseSyncUrl();
   const msg = document.getElementById('wlMsg');
-  if(!url){ msg.textContent = 'Set your Web App URL on the Import tab first.'; return; }
+  if(!url){ msg.textContent = 'Set your Web App URL on the Admin tab first.'; return; }
   msg.textContent = 'Syncing Wishlist Database…';
   try{
     const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'type=wishlist');
@@ -8292,7 +8296,7 @@ async function syncWishlistDb(){
 async function syncTradeDb(){
   const url = baseSyncUrl();
   const msg = document.getElementById('tmMsg');
-  if(!url){ msg.textContent = 'Set your Web App URL on the Import tab first.'; return; }
+  if(!url){ msg.textContent = 'Set your Web App URL on the Admin tab first.'; return; }
   msg.textContent = 'Syncing Trade Database…';
   try{
     const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'type=trade');
@@ -8734,7 +8738,7 @@ function renderCollection(){
   document.getElementById('collectionCount').textContent = `${rows.length} rows (${cards.length} total loaded)`;
   const tbody = document.querySelector('#collectionTable tbody');
   if(rows.length===0){
-    tbody.innerHTML = `<tr><td colspan="4" class="empty">No cards match. Import your CardList from the Import tab.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="empty">No cards match. Import your CardList from the Admin tab.</td></tr>`;
     return;
   }
   tbody.innerHTML = rows.slice(0,500).map(c=>`
@@ -8769,7 +8773,7 @@ async function loadUserAlbum(){
   const msg = document.getElementById('albumViewingMsg');
   if(!username){ msg.textContent = 'Enter a username first.'; return; }
   const url = baseSyncUrl();
-  if(!url){ msg.textContent = 'Set your Web App URL on the Import tab first.'; return; }
+  if(!url){ msg.textContent = 'Set your Web App URL on the Admin tab first.'; return; }
   msg.textContent = `Loading ${username}'s album…`;
   try{
     const res = await fetch(`${url}${url.includes('?')?'&':'?'}type=useralbum&user=${encodeURIComponent(username)}`);
@@ -9057,7 +9061,7 @@ function closeCardModal(){
 async function lookupOwners(celeb, type){
   const resultEl = document.getElementById('modalOwnersResult');
   const url = baseSyncUrl();
-  if(!url){ resultEl.textContent = 'Set your Web App URL on the Import tab first.'; return; }
+  if(!url){ resultEl.textContent = 'Set your Web App URL on the Admin tab first.'; return; }
   resultEl.textContent = 'Looking up owners…';
   try{
     const res = await fetch(`${url}${url.includes('?')?'&':'?'}type=owners&celeb=${encodeURIComponent(celeb)}&cardtype=${encodeURIComponent(type)}`);
