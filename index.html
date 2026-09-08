@@ -153,6 +153,12 @@
     font-family:'IBM Plex Mono'; font-size:11px; color:var(--text-dim); text-align:center; padding:8px;
   }
   .tier-corner{position:absolute; top:6px; right:8px; font-size:13px; z-index:2;}
+  .card.overlap{border-color:var(--teal); box-shadow:0 0 0 1px var(--teal) inset;}
+  .overlap-badge{
+    position:absolute; top:6px; left:8px; z-index:2; width:18px; height:18px; border-radius:50%;
+    background:var(--teal); color:#0d1a19; font-size:11px; font-weight:700;
+    display:flex; align-items:center; justify-content:center;
+  }
   .tier-dot-1{color:var(--gold-bright);}
   .tier-dot-2{color:var(--teal);}
   .tier-dot-3{color:#a58fd6;}
@@ -8037,7 +8043,7 @@ let cards = [];        // [{db, link, celeb, type, count}]
 // Bump this with every update — lets you confirm at a glance whether you're on the latest copy.
 // Date-based versioning: v[mm.dd.yy].[deployment# for that day].
 // Same calendar day + another change = increment the last number. New day = reset to 1.
-const BINDER_VERSION = 'v09.04.26.4';
+const BINDER_VERSION = 'v09.08.26.1';
 let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}]}
 let sortState = {key:'celeb', dir:1};
 
@@ -8817,21 +8823,37 @@ document.getElementById('btnBackToMyAlbum').addEventListener('click', backToMyAl
 /* ============================================================
    RENDER: album (grid of owned cards, grouped by celeb — or another user's, if viewing one)
    ============================================================ */
+// Checks whether YOU own a card of this celeb+category, regardless of exact version — used only for
+// the "you also own this" overlap marker when viewing someone else's album. Category-level, not
+// version-precise, since the community CardDB (source of another user's album) can't tell us exact
+// versions anyway — see the existing note on that limitation.
+function iAlsoOwn(celeb, type){
+  const cat = baseTypeCategory(type);
+  return cards.some(c => c.celeb===celeb && baseTypeCategory(c.type)===cat && c.count>0);
+}
+
 function renderAlbum(){
   const q = document.getElementById('albumSearch').value.toLowerCase();
   const source = viewingUser ? viewingUserCards : ownedCards();
   const filtered = source.filter(c=>!q || c.celeb.toLowerCase().includes(q));
-  document.getElementById('albumCount').textContent = viewingUser
-    ? `${filtered.length} cards`
-    : `${filtered.length} cards owned`;
+  if(viewingUser){
+    const overlapCount = filtered.filter(c=>iAlsoOwn(c.celeb,c.type)).length;
+    document.getElementById('albumCount').textContent =
+      `${filtered.length} cards — you also own ${overlapCount} of these`;
+  } else {
+    document.getElementById('albumCount').textContent = `${filtered.length} cards owned`;
+  }
   const grid = document.getElementById('albumGrid');
   if(filtered.length===0){
     grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${viewingUser ? 'No cards found for this user.' : "No owned cards yet — import your CardList."}</div>`;
     return;
   }
   filtered.sort((a,b)=> compareCelebNames(a.celeb,b.celeb) || a.type.localeCompare(b.type));
-  grid.innerHTML = filtered.map(c=>`
-    <div class="card owned" data-link="${escapeAttr(c.link)}">
+  grid.innerHTML = filtered.map(c=>{
+    const mine = viewingUser && iAlsoOwn(c.celeb, c.type);
+    return `
+    <div class="card owned${mine ? ' overlap' : ''}" data-link="${escapeAttr(c.link)}">
+      ${mine ? `<div class="overlap-badge" title="You also own this">✓</div>` : ''}
       ${tierBadge(c.celeb) ? `<div class="tier-corner">${tierBadge(c.celeb)}</div>` : ''}
       <div class="card-img-wrap">
         <img class="card-img" src="${escapeAttr(c.link)}" referrerpolicy="no-referrer"
@@ -8841,7 +8863,8 @@ function renderAlbum(){
       <div class="name">${escapeHtml(c.celeb)}</div>
       <div class="type">${typeCodeHtml(c)}</div>
       <div class="qty">×${c.count}</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 document.getElementById('albumSearch').addEventListener('input', renderAlbum);
 
