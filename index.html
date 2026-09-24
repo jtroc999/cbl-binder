@@ -8047,7 +8047,7 @@ let cards = [];        // [{db, link, celeb, type, count}]
 // Bump this with every update — lets you confirm at a glance whether you're on the latest copy.
 // Date-based versioning: v[mm.dd.yy].[deployment# for that day].
 // Same calendar day + another change = increment the last number. New day = reset to 1.
-const BINDER_VERSION = 'v09.23.26.1';
+const BINDER_VERSION = 'v09.23.26.2';
 let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}]}
 let sortState = {key:'celeb', dir:1};
 
@@ -8453,7 +8453,7 @@ function renderTradeMachine(){
     const theirWants = wlByUser[u].slice().sort((a,b)=>compareCelebNames(a.celeb,b.celeb));
     const theirOffers = tmByUser[u].slice().sort((a,b)=>compareCelebNames(a.celeb,b.celeb));
     const existingTrade = openTrades.find(t=>
-      t.partnerName.trim().toLowerCase()===u.trim().toLowerCase() ||
+      (t.partnerName && t.partnerName.trim().toLowerCase()===u.trim().toLowerCase()) ||
       (t.discordName && t.discordName.trim().toLowerCase()===u.trim().toLowerCase())
     );
     const openBadge = existingTrade
@@ -8567,8 +8567,14 @@ async function saveOpenTrades(){ try{ await storageAdapter.set('cbl-open-trades'
 async function loadOpenTradesFromCache(){
   try{
     const r = await storageAdapter.get('cbl-open-trades');
-    if(r && r.value) openTrades = JSON.parse(r.value);
-  }catch(e){}
+    if(r && r.value){
+      const parsed = JSON.parse(r.value);
+      // Discard anything from the old pre-sync data shape (had .partner/.wanting/.id instead of
+      // .partnerName/.receiving/.row) rather than risk it crashing renderers expecting the new shape.
+      const looksValid = Array.isArray(parsed) && parsed.every(t => typeof t.partnerName === 'string');
+      openTrades = looksValid ? parsed : [];
+    }
+  }catch(e){ openTrades = []; }
 }
 
 async function postToSheet(payload){
@@ -8917,7 +8923,7 @@ function renderAlbum(){
       ${mine ? `<div class="overlap-badge" title="You also own this">✓</div>` : ''}
       ${tierBadge(c.celeb) ? `<div class="tier-corner">${tierBadge(c.celeb)}</div>` : ''}
       <div class="card-img-wrap">
-        <img class="card-img" src="${escapeAttr(c.link)}" referrerpolicy="no-referrer"
+        <img class="card-img" src="${escapeAttr(c.link)}" loading="lazy" referrerpolicy="no-referrer"
              onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
         <div class="card-fallback">${escapeHtml(displayType(c))}</div>
       </div>
@@ -8963,7 +8969,7 @@ function renderCelebResult(){
       ${rows.map(c=>`
         <div class="card ${c.count>0?'owned':'unowned'}" data-link="${escapeAttr(c.link)}">
           <div class="card-img-wrap">
-            <img class="card-img" src="${escapeAttr(c.link)}" referrerpolicy="no-referrer"
+            <img class="card-img" src="${escapeAttr(c.link)}" loading="lazy" referrerpolicy="no-referrer"
                  onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
             <div class="card-fallback">${escapeHtml(displayType(c))}</div>
           </div>
@@ -9004,7 +9010,7 @@ function renderTypeResult(){
     <div class="card ${c.count>0?'owned':'unowned'}" data-link="${escapeAttr(c.link)}">
       ${tierBadge(c.celeb) ? `<div class="tier-corner">${tierBadge(c.celeb)}</div>` : ''}
       <div class="card-img-wrap">
-        <img class="card-img" src="${escapeAttr(c.link)}" referrerpolicy="no-referrer"
+        <img class="card-img" src="${escapeAttr(c.link)}" loading="lazy" referrerpolicy="no-referrer"
              onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
         <div class="card-fallback">${escapeHtml(displayType(c))}</div>
       </div>
