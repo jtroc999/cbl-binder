@@ -539,14 +539,18 @@
 
     <!-- OPEN TRADES -->
     <div class="tab-panel" id="panel-open-trades" style="display:none;">
-      <div class="pagehead"><h2>Open Trades</h2></div>
+      <div class="pagehead">
+        <h2>Open Trades</h2>
+        <button class="btn secondary" id="btnSyncOpenTrades">Sync Now</button>
+      </div>
       <p class="sub" style="max-width:640px;">
-        Track pending offers so you don't accidentally commit the same card to two different people.
+        Synced live from your Hub's "Open Trades" tab — works the same across mobile and desktop now.
         A ⚠️ flag appears automatically if a card shows up in more than one open trade.
       </p>
       <div class="import-box" style="max-width:640px; margin-bottom:22px;">
         <div id="otFormTitle" style="font-family:'Oswald'; font-size:14px; letter-spacing:0.03em; color:var(--gold-bright);">Log a new open trade</div>
-        <input type="text" id="otPartner" placeholder="Trade partner username">
+        <input type="text" id="otPartner" placeholder="Partner Name (CBL account)">
+        <input type="text" id="otDiscord" placeholder="Discord Name (leave blank if same as above)">
         <textarea id="otGiving" placeholder="You're offering — one per line:&#10;Celeb - Code"></textarea>
         <textarea id="otWanting" placeholder="You're asking for — one per line:&#10;Celeb - Code"></textarea>
         <div style="display:flex; gap:10px;">
@@ -8043,7 +8047,7 @@ let cards = [];        // [{db, link, celeb, type, count}]
 // Bump this with every update — lets you confirm at a glance whether you're on the latest copy.
 // Date-based versioning: v[mm.dd.yy].[deployment# for that day].
 // Same calendar day + another change = increment the last number. New day = reset to 1.
-const BINDER_VERSION = 'v09.08.26.1';
+const BINDER_VERSION = 'v09.23.26.1';
 let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}]}
 let sortState = {key:'celeb', dir:1};
 
@@ -8448,15 +8452,18 @@ function renderTradeMachine(){
   el.innerHTML = users.map(u=>{
     const theirWants = wlByUser[u].slice().sort((a,b)=>compareCelebNames(a.celeb,b.celeb));
     const theirOffers = tmByUser[u].slice().sort((a,b)=>compareCelebNames(a.celeb,b.celeb));
-    const existingTrade = openTrades.find(t=>t.partner.trim().toLowerCase()===u.trim().toLowerCase());
+    const existingTrade = openTrades.find(t=>
+      t.partnerName.trim().toLowerCase()===u.trim().toLowerCase() ||
+      (t.discordName && t.discordName.trim().toLowerCase()===u.trim().toLowerCase())
+    );
     const openBadge = existingTrade
       ? `<span class="priority-tag prio-med" style="margin-left:8px;">🔄 Open trade in progress</span>`
       : '';
     const openDetail = existingTrade ? `
         <div class="sub" style="background:var(--bg); border:1px solid var(--gold); border-radius:6px; padding:8px 10px; margin:8px 0 14px 0; font-size:12px;">
-          <b style="color:var(--gold-bright);">Already have an open trade with ${escapeHtml(u)}</b> (opened ${new Date(existingTrade.date).toLocaleDateString()})<br>
-          Giving: ${existingTrade.giving.map(g=>`${escapeHtml(g.celeb)}${g.code?' ('+escapeHtml(g.code)+')':''}`).join(', ') || '—'}<br>
-          Getting: ${existingTrade.wanting.map(w=>`${escapeHtml(w.celeb)}${w.code?' ('+escapeHtml(w.code)+')':''}`).join(', ') || '—'}
+          <b style="color:var(--gold-bright);">Already have an open trade with ${escapeHtml(existingTrade.partnerName)}</b> (opened ${escapeHtml(existingTrade.dateOpened)})<br>
+          Giving: ${existingTrade.giving.map(g=>`${escapeHtml(g.celeb)}${g.code && g.celeb!==g.code ? ' ('+escapeHtml(g.code)+')' : ''}`).join(', ') || '—'}<br>
+          Getting: ${existingTrade.receiving.map(w=>`${escapeHtml(w.celeb)}${w.code && w.celeb!==w.code ? ' ('+escapeHtml(w.code)+')' : ''}`).join(', ') || '—'}
         </div>` : '';
     return `
       <div class="trade-partner-card">
@@ -8536,44 +8543,88 @@ function tierBadge(name){
 }
 
 /* ============================================================
-   OPEN TRADES — track pending offers, flag if a card is double-committed.
+   OPEN TRADES — synced live with your Hub's "Open Trades" tab (v5 script). Falls back to a local
+   cache if offline, but the Sheet is the real source of truth across devices now.
    ============================================================ */
 let openTrades = [];
+let editingTradeRow = null;
 
-const DEFAULT_OPEN_TRADES = [
-  { id:'seed-1', partner:'WeDoTheDinosaur', date:'2026-08-22T00:00:00.000Z',
-    giving:[{celeb:'Barbara Palvin',code:'059-SPO-1'}],
-    wanting:[{celeb:'Emma Watson',code:'003-ITN'}] },
-  { id:'seed-2', partner:'AdFew7020', date:'2026-08-22T00:00:00.000Z',
-    giving:[{celeb:'Barbara Palvin',code:'059-A-XIF'},{celeb:'Kendall Jenner',code:'109-A-IF'}],
-    wanting:[{celeb:'Emma Watson',code:'003-A-SIF'},{celeb:'Selena Gomez',code:'022-A-SIF'},{celeb:'Olivia Rodrigo',code:'390-A-SIF'}] },
-  { id:'seed-3', partner:'lotusknight0025', date:'2026-08-22T00:00:00.000Z',
-    giving:[{celeb:'Alexandra Daddario',code:'007-SPO-1'},{celeb:'Galina Dubenenko',code:'219-A-B'},{celeb:'Lais Ribeiro',code:'229-A-B'},{celeb:'Georgia Ellenwood',code:'327-A-IF'}],
-    wanting:[{celeb:'Victoria Justice',code:'043-M'},{celeb:'Keira Knightley',code:'051-SU'},{celeb:'Jennifer Love Hewitt',code:'155-A-B'},{celeb:'Rachel Bilson',code:'172-A-B'},{celeb:'Eliza Dushku',code:'355-A-B'}] }
-];
+// Resolves a celeb name from a code by matching its leading DB number against local card definitions.
+// Falls back to showing the raw string if it's not a real code (e.g. a legacy plain-text entry).
+function celebFromCode(code){
+  const m = String(code||'').match(/^(\d+)-/);
+  if(!m) return code;
+  const db = parseInt(m[1], 10);
+  const match = cards.find(c=>c.db===db);
+  return match ? match.celeb : code;
+}
+function parseCodeList(str){
+  if(!str) return [];
+  return str.split(',').map(s=>s.trim()).filter(Boolean).map(code=>({ celeb: celebFromCode(code), code }));
+}
 
 async function saveOpenTrades(){ try{ await storageAdapter.set('cbl-open-trades', JSON.stringify(openTrades)); }catch(e){} }
-async function loadOpenTrades(){
+async function loadOpenTradesFromCache(){
   try{
     const r = await storageAdapter.get('cbl-open-trades');
     if(r && r.value) openTrades = JSON.parse(r.value);
-    else { openTrades = JSON.parse(JSON.stringify(DEFAULT_OPEN_TRADES)); await saveOpenTrades(); }
-  }catch(e){ openTrades = JSON.parse(JSON.stringify(DEFAULT_OPEN_TRADES)); }
+  }catch(e){}
 }
+
+async function postToSheet(payload){
+  const url = baseSyncUrl();
+  if(!url) throw new Error('Set your Web App URL on the Admin tab first.');
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type':'text/plain;charset=utf-8'}, // avoids a CORS preflight for Apps Script
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if(data && data.error) throw new Error(data.error);
+  return data;
+}
+
+async function syncOpenTrades(silent){
+  const url = baseSyncUrl();
+  const msg = document.getElementById('otMsg');
+  if(!url){ if(!silent) msg.textContent = 'Set your Web App URL on the Admin tab first.'; return; }
+  if(!silent) msg.textContent = 'Syncing…';
+  try{
+    const res = await fetch(url + (url.includes('?')?'&':'?') + 'type=opentrades');
+    const data = await res.json();
+    if(!data.trades) throw new Error(data.error || 'Unexpected response.');
+    openTrades = data.trades.map(t=>({
+      row: t.row,
+      partnerName: t.partnerName || '',
+      discordName: t.discordName || '',
+      giving: parseCodeList(t.giving),
+      receiving: parseCodeList(t.receiving),
+      dateOpened: t.dateOpened || '',
+      status: t.status || ''
+    })).filter(t => (t.status||'').toLowerCase() !== 'resolved');
+    await saveOpenTrades();
+    if(!silent) msg.textContent = `Synced ${openTrades.length} open trade(s).`;
+    renderOpenTrades();
+    renderTradeMachine();
+  }catch(err){
+    if(!silent) msg.textContent = 'Sync failed: ' + err.message;
+  }
+}
+document.getElementById('btnSyncOpenTrades').addEventListener('click', ()=>syncOpenTrades(false));
 
 function parseTradeLines(text){
   return text.split('\n').map(l=>l.trim()).filter(Boolean).map(line=>{
     const idx = line.lastIndexOf(' - ');
-    if(idx===-1) return {celeb:line, code:''};
+    if(idx===-1) return {celeb:line, code:line};
     return {celeb: line.slice(0,idx).trim(), code: line.slice(idx+3).trim()};
   });
 }
 
-// How many OTHER open trades already commit this exact code (optionally excluding one trade, for edits)
-function codeCommitCount(excludeId){
+// How many OTHER open trades already commit this exact code (optionally excluding one row, for edits)
+function codeCommitCount(excludeRow){
   const counts = {};
   for(const t of openTrades){
-    if(excludeId && t.id===excludeId) continue;
+    if(excludeRow && t.row===excludeRow) continue;
     for(const g of t.giving){
       if(!g.code) continue;
       const k = g.code.trim().toLowerCase();
@@ -8584,58 +8635,58 @@ function codeCommitCount(excludeId){
 }
 
 document.getElementById('btnLogTrade').addEventListener('click', async ()=>{
-  const partner = document.getElementById('otPartner').value.trim();
-  const giving = parseTradeLines(document.getElementById('otGiving').value);
-  const wanting = parseTradeLines(document.getElementById('otWanting').value);
+  const partnerName = document.getElementById('otPartner').value.trim();
+  const discordNameInput = document.getElementById('otDiscord').value.trim();
+  const discordName = discordNameInput || partnerName;
+  const givingParsed = parseTradeLines(document.getElementById('otGiving').value);
+  const receivingParsed = parseTradeLines(document.getElementById('otWanting').value);
   const msg = document.getElementById('otMsg');
-  if(!partner || giving.length===0){ msg.textContent = "Enter a partner and at least one card you're offering."; return; }
+  if(!partnerName || givingParsed.length===0){ msg.textContent = "Enter a partner and at least one card you're offering."; return; }
 
-  if(editingTradeId){
-    // Updating an existing trade in place — exclude it from the conflict check against itself.
-    const existingCounts = codeCommitCount(editingTradeId);
-    const conflicts = giving.filter(g => g.code && existingCounts[g.code.trim().toLowerCase()]);
-    const idx = openTrades.findIndex(t=>t.id===editingTradeId);
-    if(idx!==-1){
-      openTrades[idx] = { ...openTrades[idx], partner, giving, wanting };
+  const givingCodes = givingParsed.map(g=>g.code).join(', ');
+  const receivingCodes = receivingParsed.map(w=>w.code).join(', ');
+  const existingCounts = codeCommitCount(editingTradeRow);
+  const conflicts = givingParsed.filter(g => g.code && existingCounts[g.code.trim().toLowerCase()]);
+
+  msg.textContent = editingTradeRow ? 'Updating…' : 'Logging…';
+  try{
+    if(editingTradeRow){
+      await postToSheet({ action:'update', row: editingTradeRow, partnerName, discordName, giving: givingCodes, receiving: receivingCodes });
+    } else {
+      await postToSheet({ action:'add', partnerName, discordName, giving: givingCodes, receiving: receivingCodes });
     }
-    await saveOpenTrades();
-    msg.innerHTML = conflicts.length
-      ? `⚠️ Updated — but heads up: ${conflicts.map(c=>`<b>${escapeHtml(c.celeb)}</b> (${escapeHtml(c.code)})`).join(', ')} ${conflicts.length>1?'are':'is'} also committed elsewhere.`
-      : 'Trade updated.';
-    exitEditMode();
-  } else {
-    const existingCounts = codeCommitCount(null);
-    const conflicts = giving.filter(g => g.code && existingCounts[g.code.trim().toLowerCase()]);
-    openTrades.push({ id: 'trade-'+Date.now(), partner, giving, wanting, date: new Date().toISOString() });
-    await saveOpenTrades();
+    await syncOpenTrades(true);
     document.getElementById('otPartner').value = '';
+    document.getElementById('otDiscord').value = '';
     document.getElementById('otGiving').value = '';
     document.getElementById('otWanting').value = '';
     msg.innerHTML = conflicts.length
-      ? `⚠️ Logged — but heads up: ${conflicts.map(c=>`<b>${escapeHtml(c.celeb)}</b> (${escapeHtml(c.code)})`).join(', ')} ${conflicts.length>1?'are':'is'} already committed in another open trade.`
-      : 'Logged.';
+      ? `⚠️ Saved — but heads up: ${conflicts.map(c=>`<b>${escapeHtml(c.celeb)}</b> (${escapeHtml(c.code)})`).join(', ')} ${conflicts.length>1?'are':'is'} also committed in another open trade.`
+      : (editingTradeRow ? 'Trade updated.' : 'Logged.');
+    exitEditMode();
+  }catch(err){
+    msg.textContent = 'Save failed: ' + err.message;
   }
-  renderOpenTrades();
-  renderTradeMachine();
 });
 
-let editingTradeId = null;
-function enterEditMode(id){
-  const t = openTrades.find(x=>x.id===id);
+function enterEditMode(row){
+  const t = openTrades.find(x=>x.row===row);
   if(!t) return;
-  editingTradeId = id;
-  document.getElementById('otPartner').value = t.partner;
-  document.getElementById('otGiving').value = t.giving.map(g=>g.code?`${g.celeb} - ${g.code}`:g.celeb).join('\n');
-  document.getElementById('otWanting').value = t.wanting.map(w=>w.code?`${w.celeb} - ${w.code}`:w.celeb).join('\n');
-  document.getElementById('otFormTitle').textContent = `Editing trade with ${t.partner}`;
+  editingTradeRow = row;
+  document.getElementById('otPartner').value = t.partnerName;
+  document.getElementById('otDiscord').value = (t.discordName && t.discordName !== t.partnerName) ? t.discordName : '';
+  document.getElementById('otGiving').value = t.giving.map(g=> g.celeb!==g.code ? `${g.celeb} - ${g.code}` : g.code).join('\n');
+  document.getElementById('otWanting').value = t.receiving.map(w=> w.celeb!==w.code ? `${w.celeb} - ${w.code}` : w.code).join('\n');
+  document.getElementById('otFormTitle').textContent = `Editing trade with ${t.partnerName}`;
   document.getElementById('btnLogTrade').textContent = 'Update Trade';
   document.getElementById('btnCancelEdit').style.display = 'inline-block';
   document.getElementById('otMsg').textContent = '';
   document.getElementById('panel-open-trades').scrollIntoView({behavior:'smooth', block:'start'});
 }
 function exitEditMode(){
-  editingTradeId = null;
+  editingTradeRow = null;
   document.getElementById('otPartner').value = '';
+  document.getElementById('otDiscord').value = '';
   document.getElementById('otGiving').value = '';
   document.getElementById('otWanting').value = '';
   document.getElementById('otFormTitle').textContent = 'Log a new open trade';
@@ -8644,29 +8695,38 @@ function exitEditMode(){
 }
 document.getElementById('btnCancelEdit').addEventListener('click', ()=>{ exitEditMode(); document.getElementById('otMsg').textContent=''; });
 
-async function removeOpenTrade(id){
-  openTrades = openTrades.filter(t=>t.id!==id);
-  await saveOpenTrades();
-  if(editingTradeId===id) exitEditMode();
-  renderOpenTrades();
+async function removeOpenTrade(row){
+  const msg = document.getElementById('otMsg');
+  try{
+    await postToSheet({ action:'resolve', row });
+    await syncOpenTrades(true);
+    msg.textContent = 'Marked resolved.';
+  }catch(err){
+    msg.textContent = 'Failed to mark resolved: ' + err.message;
+  }
+  if(editingTradeRow===row) exitEditMode();
   renderTradeMachine();
 }
 
 function renderOpenTrades(){
   const el = document.getElementById('openTradesView');
   if(openTrades.length===0){
-    el.innerHTML = '<div class="empty">No open trades logged yet.</div>';
+    el.innerHTML = '<div class="empty">No open trades — hit Sync Now, or log one below.</div>';
     return;
   }
   const counts = codeCommitCount(null);
-  const sorted = openTrades.slice().sort((a,b)=> b.date.localeCompare(a.date));
-  el.innerHTML = sorted.map(t=>`
+  const sorted = openTrades.slice().sort((a,b)=> String(b.dateOpened).localeCompare(String(a.dateOpened)));
+  el.innerHTML = sorted.map(t=>{
+    const nameLine = (t.discordName && t.discordName !== t.partnerName)
+      ? `${escapeHtml(t.partnerName)} <span class="sub" style="font-weight:400;">(Discord: ${escapeHtml(t.discordName)})</span>`
+      : escapeHtml(t.partnerName);
+    return `
     <div class="trade-partner-card">
       <div class="trade-partner-header" style="display:flex; justify-content:space-between; align-items:center;">
-        <span>${escapeHtml(t.partner)} <span class="sub" style="font-weight:400;">— opened ${new Date(t.date).toLocaleDateString()}</span></span>
+        <span>${nameLine} <span class="sub" style="font-weight:400;">— opened ${escapeHtml(t.dateOpened)}</span></span>
         <span style="display:flex; gap:8px;">
-          <button class="btn secondary" style="padding:4px 12px; font-size:11px;" data-edit="${t.id}">Edit Terms</button>
-          <button class="btn secondary" style="padding:4px 12px; font-size:11px;" data-remove="${t.id}">Mark Resolved</button>
+          <button class="btn secondary" style="padding:4px 12px; font-size:11px;" data-edit="${t.row}">Edit Terms</button>
+          <button class="btn secondary" style="padding:4px 12px; font-size:11px;" data-remove="${t.row}">Mark Resolved</button>
         </span>
       </div>
       <div class="trade-partner-cols">
@@ -8674,27 +8734,28 @@ function renderOpenTrades(){
           <h4>You're Giving</h4>
           ${t.giving.map(g=>{
             const dup = g.code && counts[g.code.trim().toLowerCase()] > 1;
-            return `<div class="trade-item">${escapeHtml(g.celeb)}${g.code?` — <span class="mono sub">${escapeHtml(g.code)}</span>`:''}
+            return `<div class="trade-item">${escapeHtml(g.celeb)}${g.code && g.celeb!==g.code ? ` — <span class="mono sub">${escapeHtml(g.code)}</span>` : ''}
               ${dup ? '<br><span style="color:var(--red); font-size:11px;">⚠️ also committed in another open trade</span>' : ''}</div>`;
           }).join('')}
         </div>
         <div class="trade-col">
           <h4>You're Getting</h4>
-          ${t.wanting.map(w=>`<div class="trade-item">${escapeHtml(w.celeb)}${w.code?` — <span class="mono sub">${escapeHtml(w.code)}</span>`:''}</div>`).join('')}
+          ${t.receiving.map(w=>`<div class="trade-item">${escapeHtml(w.celeb)}${w.code && w.celeb!==w.code ? ` — <span class="mono sub">${escapeHtml(w.code)}</span>` : ''}</div>`).join('')}
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   el.querySelectorAll('[data-remove]').forEach(btn=>{
-    btn.addEventListener('click', ()=> removeOpenTrade(btn.dataset.remove));
+    btn.addEventListener('click', ()=> removeOpenTrade(parseInt(btn.dataset.remove,10)));
   });
   el.querySelectorAll('[data-edit]').forEach(btn=>{
-    btn.addEventListener('click', ()=> enterEditMode(btn.dataset.edit));
+    btn.addEventListener('click', ()=> enterEditMode(parseInt(btn.dataset.edit,10)));
   });
 }
 
 /* ============================================================
    TABS
-   ============================================================ */
+
 document.querySelectorAll('nav.tabs button').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
@@ -9218,10 +9279,13 @@ function renderAll(){
   await loadAutoSync();
   await loadWishlistRows();
   await loadTradeRows();
-  await loadOpenTrades();
+  await loadOpenTradesFromCache();
   renderAll();
   if(document.getElementById('autoSync').checked && document.getElementById('syncUrl').value.trim()){
     syncFromSheet(true);
+  }
+  if(document.getElementById('syncUrl').value.trim()){
+    syncOpenTrades(true); // always try a live refresh on load, regardless of the CardList auto-sync toggle
   }
 })();
 </script>
