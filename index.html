@@ -8047,7 +8047,7 @@ let cards = [];        // [{db, link, celeb, type, count}]
 // Bump this with every update — lets you confirm at a glance whether you're on the latest copy.
 // Date-based versioning: v[mm.dd.yy].[deployment# for that day].
 // Same calendar day + another change = increment the last number. New day = reset to 1.
-const BINDER_VERSION = 'v09.24.26.1';
+const BINDER_VERSION = 'v09.28.26.2';
 let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}]}
 let sortState = {key:'celeb', dir:1};
 
@@ -8761,6 +8761,7 @@ function renderOpenTrades(){
         <span>${nameLine}${inactiveTag} <span class="sub" style="font-weight:400;">— opened ${escapeHtml(t.dateOpened)}</span></span>
         <span style="display:flex; gap:8px;">
           <button class="btn secondary" style="padding:4px 12px; font-size:11px;" data-edit="${t.row}">Edit Terms</button>
+          <button class="btn secondary" style="padding:4px 12px; font-size:11px;" data-copy-reddit="${t.row}">Copy for Reddit</button>
           <button class="btn secondary" style="padding:4px 12px; font-size:11px;" data-remove="${t.row}">Mark Closed</button>
         </span>
       </div>
@@ -8787,6 +8788,23 @@ function renderOpenTrades(){
   el.querySelectorAll('[data-edit]').forEach(btn=>{
     btn.addEventListener('click', ()=> enterEditMode(parseInt(btn.dataset.edit,10)));
   });
+  el.querySelectorAll('[data-copy-reddit]').forEach(btn=>{
+    btn.addEventListener('click', ()=> copyForReddit(parseInt(btn.dataset.copyReddit,10)));
+  });
+}
+
+// Formats an open trade as a ready-to-paste Reddit confirmation post and copies it to the clipboard.
+function copyForReddit(row){
+  const t = openTrades.find(x=>x.row===row);
+  const msg = document.getElementById('otMsg');
+  if(!t){ msg.textContent = 'Could not find that trade.'; return; }
+  const lineFor = c => (c.code && c.celeb !== c.code) ? `${c.celeb} — ${c.code}` : c.celeb;
+  const givingLines = t.giving.map(lineFor).join('\n') || '—';
+  const receivingLines = t.receiving.map(lineFor).join('\n') || '—';
+  const text = `Trading to u/${t.partnerName.toLowerCase()};\n${givingLines}\n\nGetting in return;\n${receivingLines}`;
+  navigator.clipboard.writeText(text)
+    .then(()=>{ msg.textContent = `Copied ${t.partnerName}'s trade — ready to paste on Reddit.`; })
+    .catch(()=>{ msg.textContent = 'Copy failed — clipboard access may be blocked in this browser.'; });
 }
 
 /* ============================================================
