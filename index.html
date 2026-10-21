@@ -495,7 +495,7 @@
         <button class="btn secondary" id="btnSyncWishlist">Sync Wishlist DB</button>
       </div>
       <p class="sub" style="max-width:640px;">
-        Cards you own that appear on someone else's posted wishlist — good trade-conversation starters.
+        Cards you own that appear on someone else's posted wishlist — good trade-conversation starters. Target-celeb cards appear only when you hold a duplicate (extra copies).
       </p>
       <div class="controls"><input type="text" id="wlSearch" placeholder="Search celeb or user…"></div>
       <div id="wlMsg" class="sub"></div>
@@ -8047,7 +8047,7 @@ let cards = [];        // [{db, link, celeb, type, count}]
 // Bump this with every update — lets you confirm at a glance whether you're on the latest copy.
 // Date-based versioning: v[mm.dd.yy].[deployment# for that day].
 // Same calendar day + another change = increment the last number. New day = reset to 1.
-const BINDER_VERSION = 'v09.28.26.2';
+const BINDER_VERSION = 'v10.21.26.1';
 let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}]}
 let sortState = {key:'celeb', dir:1};
 
@@ -8330,9 +8330,14 @@ document.getElementById('btnSyncTrade').addEventListener('click', syncTradeDb);
    COMPUTE: shared match logic (used by Wishlist Matches, Trade Matches, and Trade Machine)
    ============================================================ */
 function computeWishlistMatches(){
-  const owned = ownedCards().filter(oc => celebTier(oc.celeb) === 3); // exclude Target 1/2/3 — those aren't for trade
+  // Non-target celebs: every owned copy counts. Target celebs (Tier 1/2/3): only DUPLICATES count,
+  // i.e. a 2nd+ copy of the same card (same link). You keep one; the extras (count-1) are tradeable.
+  // Signature (S) cards are never offered.
+  const owned = ownedCards().filter(oc => celebTier(oc.celeb) === 3 || (oc.count >= 2 && String(oc.type||'').toUpperCase() !== 'S'));
   const matches = [];
   for(const oc of owned){
+    const isTargetDup = celebTier(oc.celeb) !== 3;
+    const spareCount = isTargetDup ? oc.count - 1 : 0;
     const ownedCat = baseTypeCategory(oc.type);
     for(const w of wishlistRows){
       if(w.celeb.trim().toLowerCase()===oc.celeb.trim().toLowerCase() &&
@@ -8340,6 +8345,8 @@ function computeWishlistMatches(){
         matches.push({
           celeb: oc.celeb,
           ownedTypeCanonical: oc.type,    // canonical category, e.g. "DEN" — always reliable
+          isTargetDup,                    // true when this is a spare copy of a target celeb's card
+          spareCount,                     // extra copies available (target dups only)
           ownedCode: displayType(oc),     // exact version code from the link, e.g. "122-DEN-2"
           wantedType: w.type,             // generic category they listed, e.g. "C"
           wantedVersion: w.makeVersion,   // their stated version, if any, e.g. "2"
@@ -8384,7 +8391,7 @@ function renderWishlistMatches(){
     const showCode = m.ownedCode && m.ownedCode.toLowerCase() !== m.ownedTypeCanonical.toLowerCase();
     return `
     <tr>
-      <td>${tierBadge(m.celeb)} ${escapeHtml(m.celeb)}<br><span class="type-tag">${escapeHtml(m.ownedTypeCanonical)}</span>${showCode ? `<br><span class="mono sub" style="font-size:10px;">${escapeHtml(m.ownedCode)}</span>` : ''}</td>
+      <td>${tierBadge(m.celeb)} ${escapeHtml(m.celeb)}<br><span class="type-tag">${escapeHtml(m.ownedTypeCanonical)}</span>${showCode ? `<br><span class="mono sub" style="font-size:10px;">${escapeHtml(m.ownedCode)}</span>` : ''}${m.isTargetDup ? `<br><span class="sub" style="font-size:10px;">🔁 duplicate — ${m.spareCount} spare</span>` : ''}</td>
       <td><span class="type-tag">${escapeHtml(m.wantedType)}</span>${m.wantedVersion ? ` <span class="sub">v${escapeHtml(String(m.wantedVersion))}</span>` : ''}
         ${m.wantedVersion ? `<br><span class="sub" style="font-size:10px;">${sameVersion ? '✅ looks like a version match — worth confirming' : '⚠️ confirm this is the version they want'}</span>` : ''}</td>
       <td>${escapeHtml(m.user)}</td>
@@ -8496,7 +8503,7 @@ function renderTradeMachine(){
               const showCode = m.ownedCode && m.ownedCode.toLowerCase() !== m.ownedTypeCanonical.toLowerCase();
               return `
               <div class="trade-item">
-                ${tierBadge(m.celeb)} ${escapeHtml(m.celeb)} — you own <span class="type-tag">${escapeHtml(m.ownedTypeCanonical)}</span>${showCode ? ` <span class="mono sub" style="font-size:10px;">${escapeHtml(m.ownedCode)}</span>` : ''},
+                ${tierBadge(m.celeb)} ${escapeHtml(m.celeb)} — you own <span class="type-tag">${escapeHtml(m.ownedTypeCanonical)}</span>${showCode ? ` <span class="mono sub" style="font-size:10px;">${escapeHtml(m.ownedCode)}</span>` : ''}${m.isTargetDup ? ` <span class="sub" style="font-size:10px;">🔁 dup (${m.spareCount} spare)</span>` : ''},
                 they want <span class="type-tag">${escapeHtml(m.wantedType)}</span>${m.wantedVersion ? ' v'+escapeHtml(String(m.wantedVersion)) : ''}
                 ${m.desirability ? `<span class="sub">(desirability ${escapeHtml(String(m.desirability))})</span>` : ''}
               </div>`;
