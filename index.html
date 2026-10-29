@@ -516,6 +516,7 @@
         trade by someone else.
       </p>
       <div class="controls"><input type="text" id="tmSearch" placeholder="Search celeb or user…"></div>
+      <div id="tmLastSync" class="sub" style="font-weight:600;"></div>
       <div id="tmMsg" class="sub"></div>
       <div class="table-wrap">
         <table><thead><tr><th>Celeb</th><th>Type</th><th>Has It</th><th>Trade For</th><th>Link</th></tr></thead>
@@ -8047,7 +8048,7 @@ let cards = [];        // [{db, link, celeb, type, count}]
 // Bump this with every update — lets you confirm at a glance whether you're on the latest copy.
 // Date-based versioning: v[mm.dd.yy].[deployment# for that day].
 // Same calendar day + another change = increment the last number. New day = reset to 1.
-const BINDER_VERSION = 'v10.21.26.1';
+const BINDER_VERSION = 'v10.28.26.2';
 let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}]}
 let sortState = {key:'celeb', dir:1};
 
@@ -8206,6 +8207,7 @@ document.getElementById('btnClear').addEventListener('click', async ()=>{
    ============================================================ */
 let wishlistRows = [];
 let tradeRows = [];
+let tradeLastSync = null; // ISO timestamp of last successful (non-empty) Trade DB sync
 
 // Baked-in default so a freshly downloaded copy of the Binder always opens with this filled in —
 // no more re-pasting it after every update. Saved to storage on first load so it behaves exactly
@@ -8244,6 +8246,16 @@ async function loadWishlistRows(){
 async function saveTradeRows(){ try{ await storageAdapter.set('cbl-trade-rows', JSON.stringify(tradeRows)); }catch(e){} }
 async function loadTradeRows(){
   try{ const r = await storageAdapter.get('cbl-trade-rows'); if(r&&r.value) tradeRows = JSON.parse(r.value); }catch(e){}
+  try{ const r = await storageAdapter.get('cbl-trade-lastsync'); if(r&&r.value) tradeLastSync = JSON.parse(r.value); }catch(e){}
+}
+async function saveTradeLastSync(){ try{ await storageAdapter.set('cbl-trade-lastsync', JSON.stringify(tradeLastSync)); }catch(e){} }
+function tradeSyncStatusText(){
+  if(!tradeRows.length) return 'No trade data synced yet.';
+  if(!tradeLastSync) return `Showing ${tradeRows.length} saved trade entries (last sync date unknown — sync again once the Trade DB is up).`;
+  const d = new Date(tradeLastSync);
+  const days = Math.floor((Date.now() - d.getTime())/86400000);
+  const age = days<=0 ? 'today' : (days===1 ? '1 day ago' : days+' days ago');
+  return `Last successful sync: ${d.toLocaleString()} (${age}) · ${tradeRows.length} trade entries.`;
 }
 
 function baseSyncUrl(){
@@ -8312,12 +8324,22 @@ async function syncTradeDb(){
     const res = await fetch(url + (url.includes('?') ? '&' : '?') + 'type=trade');
     const data = await res.json();
     if(!data.rows) throw new Error(data.error || 'Unexpected response.');
+    // Safeguard: the Trade DB sometimes comes back empty (or mostly empty) when the sheet is down.
+    // Never overwrite good saved data with that — keep the last good matches and say so.
+    const incoming = data.rows.length, previous = tradeRows.length;
+    if(incoming===0 || (previous>=20 && incoming < previous*0.25)){
+      msg.textContent = `⚠ The latest Trade DB couldn't be synced (${incoming===0 ? 'no trade entries were returned' : 'only '+incoming+' entries returned vs '+previous+' saved'}), so nothing was updated. Keeping your previous trade matches. ${tradeSyncStatusText()}`;
+      renderTradeMatches();
+      return;
+    }
     tradeRows = data.rows;
+    tradeLastSync = new Date().toISOString();
     await saveTradeRows();
-    msg.textContent = `Synced ${tradeRows.length} trade entries.`;
+    await saveTradeLastSync();
+    msg.textContent = `Synced ${tradeRows.length} trade entries. ${tradeSyncStatusText()}`;
     renderTradeMatches();
     renderTradeMachine();
-  }catch(err){ msg.textContent = 'Sync failed: ' + err.message; }
+  }catch(err){ msg.textContent = 'Sync failed: ' + err.message + ' — previous trade matches kept. ' + tradeSyncStatusText(); }
 }
 
 document.getElementById('btnSync').addEventListener('click', ()=>{ saveSyncUrl(); syncFromSheet(false); });
@@ -8405,6 +8427,8 @@ document.getElementById('wlSearch').addEventListener('input', renderWishlistMatc
    RENDER: Trade Matches — target-tier celebs you don't own, listed for trade by someone else.
    ============================================================ */
 function renderTradeMatches(){
+  const lastEl = document.getElementById('tmLastSync');
+  if(lastEl) lastEl.textContent = tradeSyncStatusText();
   const q = document.getElementById('tmSearch').value.toLowerCase();
   const matches = computeTradeMatches();
   const filtered = matches.filter(m=>!q || m.celeb.toLowerCase().includes(q) || m.user.toLowerCase().includes(q));
@@ -8806,9 +8830,11 @@ function copyForReddit(row){
   const msg = document.getElementById('otMsg');
   if(!t){ msg.textContent = 'Could not find that trade.'; return; }
   const lineFor = c => (c.code && c.celeb !== c.code) ? `${c.celeb} — ${c.code}` : c.celeb;
-  const givingLines = t.giving.map(lineFor).join('\n') || '—';
-  const receivingLines = t.receiving.map(lineFor).join('\n') || '—';
-  const text = `Trading to u/${t.partnerName.toLowerCase()};\n${givingLines}\n\nGetting in return;\n${receivingLines}`;
+  // Reddit collapses single line breaks; two trailing spaces force a break within a paragraph.
+  const BR = '  \n';
+  const givingLines = t.giving.map(lineFor).join(BR) || '—';
+  const receivingLines = t.receiving.map(lineFor).join(BR) || '—';
+  const text = `\n\nTrading to u/${t.partnerName.toLowerCase()};${BR}${givingLines}\n\nGetting in return;${BR}${receivingLines}`;
   navigator.clipboard.writeText(text)
     .then(()=>{ msg.textContent = `Copied ${t.partnerName}'s trade — ready to paste on Reddit.`; })
     .catch(()=>{ msg.textContent = 'Copy failed — clipboard access may be blocked in this browser.'; });
