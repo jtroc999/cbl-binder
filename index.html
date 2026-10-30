@@ -162,6 +162,7 @@
   .tier-dot-1{color:var(--gold-bright);}
   .tier-dot-2{color:var(--teal);}
   .tier-dot-3{color:#a58fd6;}
+  .tier-dot-4{color:#d98a6a;}
   .card .name{font-family:'Oswald'; font-size:13px; letter-spacing:0.02em; margin-bottom:4px;}
   .card .type{font-family:'IBM Plex Mono'; font-size:11px; color:var(--teal);}
   .card .qty{margin-top:6px; font-family:'IBM Plex Mono'; font-size:11px; color:var(--gold-bright);}
@@ -8048,8 +8049,8 @@ let cards = [];        // [{db, link, celeb, type, count}]
 // Bump this with every update — lets you confirm at a glance whether you're on the latest copy.
 // Date-based versioning: v[mm.dd.yy].[deployment# for that day].
 // Same calendar day + another change = increment the last number. New day = reset to 1.
-const BINDER_VERSION = 'v10.28.26.2';
-let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}]}
+const BINDER_VERSION = 'v10.29.26.1';
+let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}], tier4:[{name}]}
 let sortState = {key:'celeb', dir:1};
 
 const DEFAULT_TARGETS = {
@@ -8066,7 +8067,8 @@ const DEFAULT_TARGETS = {
     {name:"Anne Hathaway", priority:"Low"}
   ],
   tier2: ["Rachel Bilson","Olivia Cooke","Olivia Dunne","Kate Beckinsale","Eliza Dushku","Jennifer Love Hewitt","Olivia Rodrigo","Isabela Merced"],
-  tier3: ["Marketa Stroblova"]
+  tier3: ["Marketa Stroblova"],
+  tier4: ["Rachel Cook"]
 };
 
 /* ============================================================
@@ -8122,6 +8124,8 @@ async function loadTargets(){
   try{
     const r = await storageAdapter.get('cbl-targets');
     targets = (r && r.value) ? JSON.parse(r.value) : JSON.parse(JSON.stringify(DEFAULT_TARGETS));
+    // Older saved targets predate Target 4 — add the tier (with its default celebs) once.
+    if(!Array.isArray(targets.tier4)){ targets.tier4 = [...DEFAULT_TARGETS.tier4]; await saveTargets(); }
   }catch(e){ targets = JSON.parse(JSON.stringify(DEFAULT_TARGETS)); }
 }
 
@@ -8355,10 +8359,10 @@ function computeWishlistMatches(){
   // Non-target celebs: every owned copy counts. Target celebs (Tier 1/2/3): only DUPLICATES count,
   // i.e. a 2nd+ copy of the same card (same link). You keep one; the extras (count-1) are tradeable.
   // Signature (S) cards are never offered.
-  const owned = ownedCards().filter(oc => celebTier(oc.celeb) === 3 || (oc.count >= 2 && String(oc.type||'').toUpperCase() !== 'S'));
+  const owned = ownedCards().filter(oc => celebTier(oc.celeb) === NON_TARGET || (oc.count >= 2 && String(oc.type||'').toUpperCase() !== 'S'));
   const matches = [];
   for(const oc of owned){
-    const isTargetDup = celebTier(oc.celeb) !== 3;
+    const isTargetDup = celebTier(oc.celeb) !== NON_TARGET;
     const spareCount = isTargetDup ? oc.count - 1 : 0;
     const ownedCat = baseTypeCategory(oc.type);
     for(const w of wishlistRows){
@@ -8384,7 +8388,8 @@ function computeTradeMatches(){
   const targetNames = new Set([
     ...(targets ? targets.tier1.map(t=>t.name) : []),
     ...(targets ? targets.tier2 : []),
-    ...(targets ? targets.tier3 : [])
+    ...(targets ? targets.tier3 : []),
+    ...(targets ? (targets.tier4||[]) : [])
   ]);
   const ownedSet = new Set(ownedCards().map(c=>c.celeb.trim().toLowerCase()+'|'+c.type.trim().toLowerCase()));
   return tradeRows.filter(t=>{
@@ -8564,12 +8569,14 @@ function buildCelebDbMap(){
     }
   }
 }
+const NON_TARGET = 4; // celebTier() value for celebs not on any target list
 function celebTier(name){
-  if(!targets) return 3;
+  if(!targets) return NON_TARGET;
   if(targets.tier1.some(t=>t.name===name)) return 0;
   if(targets.tier2.includes(name)) return 1;
   if(targets.tier3.includes(name)) return 2;
-  return 3;
+  if((targets.tier4||[]).includes(name)) return 3;
+  return NON_TARGET;
 }
 function compareCelebNames(a, b){
   const ta = celebTier(a), tb = celebTier(b);
@@ -8588,6 +8595,7 @@ function tierBadge(name){
   if(t===0) return '<span class="tier-dot tier-dot-1" title="Target 1">★</span>';
   if(t===1) return '<span class="tier-dot tier-dot-2" title="Target 2">♦</span>';
   if(t===2) return '<span class="tier-dot tier-dot-3" title="Target 3">●</span>';
+  if(t===3) return '<span class="tier-dot tier-dot-4" title="Target 4">▲</span>';
   return '';
 }
 
@@ -9030,7 +9038,7 @@ function populateCelebSelect(){
   const current = sel.value;
   sel.innerHTML = '<option value="">Choose a celeb…</option>' + names.map(n=>{
     const t = celebTier(n);
-    const prefix = t===0?'★ ':t===1?'♦ ':t===2?'● ':'';
+    const prefix = t===0?'★ ':t===1?'♦ ':t===2?'● ':t===3?'▲ ':'';
     const db = celebDbMap[n];
     const dbSuffix = db!==undefined ? ` (${db})` : '';
     return `<option value="${escapeAttr(n)}">${prefix}${escapeHtml(n)}${escapeHtml(dbSuffix)}</option>`;
@@ -9170,7 +9178,8 @@ function renderTargets(){
   el.innerHTML =
     tierBlock('Target 1 — Core Targets', targets.tier1, true) +
     tierBlock('Target 2 — Liked, non-core', targets.tier2, false) +
-    tierBlock('Target 3 — Single cards to hold', targets.tier3, false);
+    tierBlock('Target 3 — Single cards to hold', targets.tier3, false) +
+    tierBlock('Target 4 — Secondary targets', targets.tier4 || [], false);
 }
 
 document.getElementById('btnEditTargets').addEventListener('click', ()=>{
