@@ -8061,7 +8061,7 @@ let cards = [];        // [{db, link, celeb, type, count}]
 // Bump this with every update — lets you confirm at a glance whether you're on the latest copy.
 // Date-based versioning: v[mm.dd.yy].[deployment# for that day].
 // Same calendar day + another change = increment the last number. New day = reset to 1.
-const BINDER_VERSION = 'v11.18.26.1';
+const BINDER_VERSION = 'v11.18.26.2';
 let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}], tier4:[{name}]}
 let sortState = {key:'celeb', dir:1};
 
@@ -8500,18 +8500,38 @@ function computeDupeMatches(){
   return out;
 }
 function computeTradeMatches(){
-  const targetNames = new Set([
+  // Version-aware: a trade-list card counts as a match if I don't own THAT exact version
+  // (owning e.g. Emma Watson CX2 + CX4 must not hide a listed CX1). When the Trade DB row has no usable
+  // link and the type has several versions, it's kept if I'm missing any version, flagged exact:false.
+  const targetSet = new Set([
     ...(targets ? targets.tier1.map(t=>t.name) : []),
     ...(targets ? targets.tier2 : []),
     ...(targets ? targets.tier3 : []),
     ...(targets ? (targets.tier4||[]) : [])
-  ]);
-  const ownedSet = new Set(ownedCards().map(c=>c.celeb.trim().toLowerCase()+'|'+c.type.trim().toLowerCase()));
-  return tradeRows.filter(t=>{
-    if(![...targetNames].some(n=>n.toLowerCase()===t.celeb.trim().toLowerCase())) return false;
-    const key = t.celeb.trim().toLowerCase()+'|'+t.type.trim().toLowerCase();
-    return !ownedSet.has(key);
-  });
+  ].map(n=>n.trim().toLowerCase()));
+  const defsByKey = {};
+  for(const c of cards){
+    const k = c.celeb.trim().toLowerCase()+'|'+c.type.trim().toLowerCase();
+    (defsByKey[k] = defsByKey[k] || []).push(c);
+  }
+  const out = [];
+  for(const t of tradeRows){
+    if(!targetSet.has(t.celeb.trim().toLowerCase())) continue;
+    const defs = defsByKey[t.celeb.trim().toLowerCase()+'|'+t.type.trim().toLowerCase()] || [];
+    if(!defs.length){ out.push({...t, exact:false}); continue; }
+    const tt = linkTail(t.link), tc = codeFromLink(t.link).toLowerCase();
+    let def = null;
+    if(defs.length===1) def = defs[0];
+    else def = defs.find(d=> (tt && linkTail(d.link)===tt) || (tc && codeFromLink(d.link).toLowerCase()===tc)) || null;
+    if(def){
+      if(def.count>0) continue;            // I already own this exact card
+      out.push({...t, exact:true});
+    } else {
+      if(defs.every(d=>d.count>0)) continue; // own every version
+      out.push({...t, exact:false});
+    }
+  }
+  return out;
 }
 
 /* ============================================================
@@ -8566,7 +8586,7 @@ function renderTradeMatches(){
       <td><span class="type-tag">${escapeHtml(m.type)}</span>${code ? `<br><span class="mono sub" style="font-size:10px;">${escapeHtml(code)}</span>` : ''}</td>
       <td>${escapeHtml(m.user)}</td>
       <td>${m.tradeFor ? escapeHtml(m.tradeFor) : '—'}</td>
-      <td>${m.link ? `<a href="${escapeAttr(m.link)}" target="_blank" rel="noopener">view</a>` : '—'}</td>
+      <td>${m.link ? `<a href="${escapeAttr(m.link)}" target="_blank" rel="noopener">view</a>` : '—'}${m.exact===false ? '<br><span class="sub" style="font-size:10px;">version unconfirmed</span>' : ''}</td>
     </tr>`;
   }).join('');
 }
