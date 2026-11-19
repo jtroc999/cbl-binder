@@ -167,6 +167,12 @@
   .card .type{font-family:'IBM Plex Mono'; font-size:11px; color:var(--teal);}
   .card .qty{margin-top:6px; font-family:'IBM Plex Mono'; font-size:11px; color:var(--gold-bright);}
   .card.unowned{opacity:0.38;}
+  .card.unowned.trade-avail{opacity:0.8; border-color:var(--teal);}
+  .trade-flag{
+    position:absolute; top:6px; right:6px; z-index:3; background:var(--teal); color:var(--bg);
+    font-family:'IBM Plex Mono'; font-size:11px; font-weight:700; line-height:1; padding:3px 6px;
+    border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,0.5);
+  }
   .card.unowned .name, .card.unowned .type{color:var(--text-dim);}
 
   /* ---- heatmap ---- */
@@ -588,6 +594,7 @@
       <div id="modalQty" class="sub" style="margin-top:10px;"></div>
       <button class="btn secondary" id="modalOwnersBtn" style="margin-top:12px; align-self:flex-start;">Who else owns this?</button>
       <div id="modalOwnersResult" class="sub" style="margin-top:10px;"></div>
+      <div id="modalTradeUsers" class="sub" style="margin-top:14px; display:none;"></div>
       <a id="modalLink" href="#" target="_blank" rel="noopener" class="sub" style="display:inline-block; margin-top:14px;">Open original image ↗</a>
     </div>
   </div>
@@ -8054,7 +8061,7 @@ let cards = [];        // [{db, link, celeb, type, count}]
 // Bump this with every update — lets you confirm at a glance whether you're on the latest copy.
 // Date-based versioning: v[mm.dd.yy].[deployment# for that day].
 // Same calendar day + another change = increment the last number. New day = reset to 1.
-const BINDER_VERSION = 'v11.17.26.1';
+const BINDER_VERSION = 'v11.18.26.1';
 let targets = null;    // {tier1:[{name,priority}], tier2:[{name}], tier3:[{name}], tier4:[{name}]}
 let sortState = {key:'celeb', dir:1};
 
@@ -8073,7 +8080,7 @@ const DEFAULT_TARGETS = {
   ],
   tier2: ["Rachel Bilson","Olivia Cooke","Olivia Dunne","Kate Beckinsale","Eliza Dushku","Jennifer Love Hewitt","Olivia Rodrigo","Isabela Merced"],
   tier3: ["Marketa Stroblova"],
-  tier4: ["Rachel Cook"]
+  tier4: ["Rachel Cook", "Alicia Vikander"]
 };
 
 /* ============================================================
@@ -8131,6 +8138,11 @@ async function loadTargets(){
     targets = (r && r.value) ? JSON.parse(r.value) : JSON.parse(JSON.stringify(DEFAULT_TARGETS));
     // Older saved targets predate Target 4 — add the tier (with its default celebs) once.
     if(!Array.isArray(targets.tier4)){ targets.tier4 = [...DEFAULT_TARGETS.tier4]; await saveTargets(); }
+    // One-time (Nov 17): add Alicia Vikander to Target 4. The flag keeps her from coming back if removed later.
+    if(!targets.tier4Alicia){
+      if(!targets.tier4.includes('Alicia Vikander')) targets.tier4.push('Alicia Vikander');
+      targets.tier4Alicia = true; await saveTargets();
+    }
   }catch(e){ targets = JSON.parse(JSON.stringify(DEFAULT_TARGETS)); }
 }
 
@@ -8399,6 +8411,7 @@ async function syncTradeDb(){
     msg.textContent = `Synced ${tradeRows.length} trade entries. ${tradeSyncStatusText()}`;
     renderTradeMatches();
     renderTradeMachine();
+    renderCelebResult();
   }catch(err){ msg.textContent = 'Sync failed: ' + err.message + ' — previous trade matches kept. ' + tradeSyncStatusText(); }
 }
 
@@ -9202,8 +9215,12 @@ function renderCelebResult(){
   el.innerHTML = `
     <h3 style="font-size:15px; margin-bottom:10px;">${tierBadge(name)} ${escapeHtml(name)} — ${ownedCount} of ${rows.length} card types owned</h3>
     <div class="grid">
-      ${rows.map(c=>`
-        <div class="card ${c.count>0?'owned':'unowned'}" data-link="${escapeAttr(c.link)}">
+      ${rows.map(c=>{
+        const offers = c.count>0 ? [] : tradeOffersFor(c);
+        const flag = offers.length ? `<span class="trade-flag" title="On ${offers.length} trade list${offers.length===1?'':'s'}: ${escapeAttr(offers.map(o=>o.user).join(', '))}">🤝 ${offers.length}</span>` : '';
+        return `
+        <div class="card ${c.count>0?'owned':'unowned'}${offers.length?' trade-avail':''}" data-link="${escapeAttr(c.link)}">
+          ${flag}
           <div class="card-img-wrap">
             <img class="card-img" src="${escapeAttr(c.link)}" loading="lazy" referrerpolicy="no-referrer"
                  onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
@@ -9211,7 +9228,7 @@ function renderCelebResult(){
           </div>
           <div class="name">${typeCodeHtml(c)}</div>
           <div class="qty">${c.count>0 ? '×'+c.count : 'not owned'}</div>
-        </div>`).join('')}
+        </div>`;}).join('')}
     </div>`;
 }
 document.getElementById('celebSelect').addEventListener('change', renderCelebResult);
@@ -9356,6 +9373,58 @@ document.getElementById('btnSaveTargets').addEventListener('click', async ()=>{
 /* ============================================================
    CARD MODAL (expanded view)
    ============================================================ */
+// ---- Trade availability for cards I don't own (By Celeb flag + card modal) ----
+let _tradeIdx = null, _tradeIdxSrc = null;
+function linkTail(l){ try{ return String(l||'').split('/').filter(Boolean).pop() || ''; }catch(e){ return ''; } }
+function tradeIndex(){
+  if(_tradeIdxSrc !== tradeRows){
+    _tradeIdx = {};
+    for(const t of tradeRows){
+      if(!t || !t.celeb || !t.type) continue;
+      const k = t.celeb.trim().toLowerCase()+'|'+t.type.trim().toLowerCase();
+      (_tradeIdx[k] = _tradeIdx[k] || []).push(t);
+    }
+    _tradeIdxSrc = tradeRows;
+  }
+  return _tradeIdx;
+}
+// Users with this exact card on their trade list. Trade DB rows are celeb+type (+ a link that identifies the
+// version); a row whose version can't be determined is returned flagged exact:false.
+function tradeOffersFor(card){
+  if(!card || card.count>0 || !tradeRows.length) return [];
+  const k = card.celeb.trim().toLowerCase()+'|'+card.type.trim().toLowerCase();
+  const rows = tradeIndex()[k] || [];
+  if(!rows.length) return [];
+  const defs = cards.filter(c=>c.celeb===card.celeb && c.type.trim().toLowerCase()===card.type.trim().toLowerCase());
+  const defTails = new Set(defs.map(d=>linkTail(d.link)));
+  const defCodes = new Set(defs.map(d=>codeFromLink(d.link).toLowerCase()).filter(Boolean));
+  const myTail = linkTail(card.link), myCode = codeFromLink(card.link).toLowerCase();
+  const byUser = {};
+  for(const t of rows){
+    if(t.user && t.user.trim().toLowerCase()===MY_CBL_USER) continue;
+    const tt = linkTail(t.link), tc = codeFromLink(t.link).toLowerCase();
+    let exact;
+    if(defs.length<=1) exact = true;                              // only one version exists
+    else if(tt && tt===myTail) exact = true;
+    else if(tc && myCode && tc===myCode) exact = true;
+    else if(!tt || (!defTails.has(tt) && !defCodes.has(tc))) exact = false;   // can't tell which version
+    else continue;                                                // they list a different, known version
+    const prev = byUser[t.user];
+    if(!prev || (exact && !prev.exact)) byUser[t.user] = { user:t.user, tradeFor:t.tradeFor||'', exact, tradeability:t.tradeability||'' };
+  }
+  return Object.values(byUser).sort((a,b)=> (b.exact-a.exact) || a.user.localeCompare(b.user));
+}
+function renderModalTradeUsers(card){
+  const el = document.getElementById('modalTradeUsers');
+  if(!el) return;
+  const offers = viewingUser ? [] : tradeOffersFor(card);
+  if(!offers.length){ el.style.display='none'; el.innerHTML=''; return; }
+  el.style.display='block';
+  el.innerHTML = `<div style="color:var(--teal); font-weight:600; margin-bottom:4px;">🤝 On ${offers.length} trade list${offers.length===1?'':'s'}</div>` +
+    offers.map(o=>`<div style="margin-top:3px;">${escapeHtml(o.user)}${o.tradeFor ? ` <span style="opacity:0.8;">— wants: ${escapeHtml(String(o.tradeFor))}</span>` : ''}${o.exact ? '' : ' <span style="opacity:0.7;">(version unconfirmed)</span>'}</div>`).join('') +
+    `<div style="margin-top:4px; font-size:10px; opacity:0.7;">${escapeHtml(tradeSyncStatusText())}</div>`;
+}
+
 function openCardModal(cardLink){
   const source = viewingUser ? viewingUserCards : cards;
   const card = source.find(c=>c.link===cardLink);
@@ -9376,6 +9445,7 @@ function openCardModal(cardLink){
     ? `${viewingUser} owns ×${card.count}`
     : (card.count>0 ? `Owned ×${card.count}` : 'Not owned');
   document.getElementById('modalOwnersResult').textContent = '';
+  renderModalTradeUsers(card);
   document.getElementById('modalOwnersBtn').onclick = ()=> lookupOwners(card.celeb, card.type);
   const link = document.getElementById('modalLink');
   if(card.link){ link.href = card.link; link.style.display='inline-block'; }
